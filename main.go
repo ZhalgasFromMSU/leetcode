@@ -13,7 +13,7 @@ import (
 func main() {
     logFile, err := os.OpenFile("log.txt", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
     if err != nil {
-        fmt.Println("Couldn't open log file")
+        panic("Couldn't open log file")
     }
 
     defer logFile.Close()
