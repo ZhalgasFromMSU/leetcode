@@ -4,13 +4,37 @@ import (
     "fmt"
     "log"
     "os"
+    "os/signal"
+    "syscall"
     "sync"
 
     "github.com/ZhalgasFromMSU/leetcode/telegram"
     // "github.com/ZhalgasFromMSU/leetcode/crawler"
+    "github.com/ZhalgasFromMSU/leetcode/database"
 )
 
-func setupBot(bot *telegram.Bot) {
+type Logger struct {
+    Output *os.File
+    Logger *log.Logger
+}
+
+func NewLogger(filename string) (*Logger, error) {
+    logFile, err := os.OpenFile(filename, os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
+    if err != nil {
+        return nil, err
+    }
+
+    return &Logger{
+        Output: logFile,
+        Logger: log.New(logFile, "", log.LstdFlags | log.Lshortfile),
+    }, nil
+}
+
+func (logger *Logger) Close() {
+    logger.Output.Close()
+}
+
+func SetupBot(bot *telegram.Bot, db *database.Connection) {
     bot.RegisterCallbackWithHelp("dump", "arguments: day | week | all; dump information about solved tasks in specified time period", func (args string) string {
         return "Hello, world!"
     })
@@ -20,31 +44,42 @@ func setupBot(bot *telegram.Bot) {
     })
 
     bot.RegisterDefaultHelp()
-    bot.HandleShutdownSignal()
 }
 
 func main() {
-    logFile, err := os.OpenFile("log.txt", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
+    logger, err := NewLogger("log.txt")
     if err != nil {
-        panic("Couldn't open log file")
+        panic(fmt.Sprintf("Couldnt create logger %v", err.Error()))
     }
-    defer logFile.Close()
+    defer logger.Close()
 
-    logger := log.New(logFile, "", log.LstdFlags | log.Lshortfile)
-
-    bot, err := telegram.NewBot(logger)
+    db, err := database.NewConnection(logger.Logger, os.Getenv("DB_URL"))
     if err != nil {
-        logger.Panicf("Error creating bot: %v", err.Error())
+        logger.Logger.Panicf("Error creating db connection: %v", err.Error())
     }
 
-    setupBot(&bot)
+    bot, err := telegram.NewBot(logger.Logger, os.Getenv("BOT_TOKEN"))
+    if err != nil {
+        logger.Logger.Panicf("Error creating bot: %v", err.Error())
+    }
+
+    SetupBot(&bot, &db)
 
     wg := sync.WaitGroup{}
-    wg.Add(1)
+    wg.Add(2)
 
-    logger.Println("Starting telegram bot")
     go bot.StartPolling(&wg)
 
+    go func() {
+        defer wg.Done()
+
+        sigchan := make(chan os.Signal, 1)
+        signal.Notify(sigchan, syscall.SIGTERM, syscall.SIGINT)
+        <-sigchan
+        logger.Logger.Println("Received shutdown signal, going to shutdown goroutines")
+        bot.Shutdown()
+    }()
+
     wg.Wait()
-    logger.Println("Telegram bot stopped")
+    logger.Logger.Println("All processes stopped")
 }

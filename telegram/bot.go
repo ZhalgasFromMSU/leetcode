@@ -1,9 +1,6 @@
 package telegram
 
 import (
-    "os"
-    "os/signal"
-    "syscall"
     "fmt"
     "sync"
     "log"
@@ -23,11 +20,10 @@ type Bot struct {
     callbacks map[string]callback
 
     defaultHelp bool
-    handleShutdown bool
 }
 
-func NewBot(logger *log.Logger) (Bot, error) {
-    bot, err := tgbotapi.NewBotAPI(os.Getenv("BOT_TOKEN"))
+func NewBot(logger *log.Logger, token string) (Bot, error) {
+    bot, err := tgbotapi.NewBotAPI(token)
 
     if err != nil {
         return Bot{}, err
@@ -52,8 +48,9 @@ func (bot *Bot) RegisterDefaultHelp() {
     bot.defaultHelp = true
 }
 
-func (bot *Bot) HandleShutdownSignal() {
-    bot.handleShutdown = true
+func (bot *Bot) Shutdown() {
+    bot.logger.Println("Received shutdown directive")
+    bot.api.StopReceivingUpdates()
 }
 
 func (bot *Bot) buildResponse(msg *tgbotapi.Message) string {
@@ -86,36 +83,23 @@ func (bot *Bot) StartPolling(wg *sync.WaitGroup) {
 
     updates := bot.api.GetUpdatesChan(tgbotapi.UpdateConfig { Timeout: 1, Offset: 0 })
 
-    var sigchan chan os.Signal
-    if bot.handleShutdown {
-        sigchan = make(chan os.Signal, 1)
-        signal.Notify(sigchan, syscall.SIGTERM, syscall.SIGINT)
-    }
+    bot.logger.Println("Starting bot")
 
-    loop: for {
-        select {
-        case <-sigchan:
-            bot.logger.Println("Received shutdown signal, going to shut down")
-            bot.api.StopReceivingUpdates()
-        case update, ok := <-updates:
-            if !ok {
-                bot.logger.Println("But was shut down")
-                break loop
-            }
+    for update := range updates {
+        if update.Message != nil {
+            bot.logger.Printf("Received message from: %v, text: %v", update.SentFrom().UserName, update.Message.Text)
+            response := bot.buildResponse(update.Message)
 
-            if update.Message != nil {
-                bot.logger.Printf("Received message from: %v, text: %v", update.SentFrom().UserName, update.Message.Text)
-                response := bot.buildResponse(update.Message)
+            bot.logger.Printf("Sending response: %v", response)
+            msg := tgbotapi.NewMessage(update.Message.Chat.ID, response)
+            msg.ReplyToMessageID = update.Message.MessageID
 
-                bot.logger.Printf("Sending response: %v", response)
-                msg := tgbotapi.NewMessage(update.Message.Chat.ID, response)
-                msg.ReplyToMessageID = update.Message.MessageID
-
-                _, err := bot.api.Send(msg)
-                if err != nil {
-                    bot.logger.Printf("Couldn't send response: %v", err.Error())
-                }
+            _, err := bot.api.Send(msg)
+            if err != nil {
+                bot.logger.Printf("Couldn't send response: %v", err.Error())
             }
         }
     }
+
+    bot.logger.Println("Bot finished")
 }
