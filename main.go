@@ -9,7 +9,7 @@ import (
     "sync"
 
     "github.com/ZhalgasFromMSU/leetcode/telegram"
-    // "github.com/ZhalgasFromMSU/leetcode/crawler"
+    "github.com/ZhalgasFromMSU/leetcode/crawler"
     "github.com/ZhalgasFromMSU/leetcode/database"
 )
 
@@ -34,18 +34,6 @@ func (logger *Logger) Close() {
     logger.Output.Close()
 }
 
-func SetupBot(bot *telegram.Bot, db *database.Connection) {
-    bot.RegisterCallbackWithHelp("dump", "arguments: day | week | all; dump information about solved tasks in specified time period", func (args string) string {
-        return "Hello, world!"
-    })
-
-    bot.RegisterCallbackWithHelp("add_profile", "arguments: <leetcode username>; adds profile to watchlist", func (args string) string {
-        return fmt.Sprintf("Added %v to watchlist", args)
-    })
-
-    bot.RegisterDefaultHelp()
-}
-
 func main() {
     logger, err := NewLogger("log.txt")
     if err != nil {
@@ -65,10 +53,16 @@ func main() {
 
     SetupBot(&bot, &db)
 
+    crawler, err := crawler.NewCrawler(logger.Logger)
+    if err != nil {
+        logger.Logger.Panicf("Error creating new crawler: %v", err.Error())
+    }
+
     wg := sync.WaitGroup{}
-    wg.Add(2)
+    wg.Add(3)
 
     go bot.StartPolling(&wg)
+    go crawler.StartCrawling(&wg)
 
     go func() {
         defer wg.Done()
@@ -78,8 +72,23 @@ func main() {
         <-sigchan
         logger.Logger.Println("Received shutdown signal, going to shutdown goroutines")
         bot.Shutdown()
+        crawler.Shutdown()
     }()
 
     wg.Wait()
     logger.Logger.Println("All processes stopped")
 }
+
+// Helpers
+func SetupBot(bot *telegram.Bot, db *database.Connection) {
+    bot.RegisterCallbackWithHelp("dump", "arguments: day | week | all; dump information about solved tasks in specified time period", func (args string) string {
+        return "Hello, world!"
+    })
+
+    bot.RegisterCallbackWithHelp("add_profile", "arguments: <leetcode username>; adds profile to watchlist", func (args string) string {
+        return fmt.Sprintf("Added %v to watchlist", args)
+    })
+
+    bot.RegisterDefaultHelp()
+}
+
