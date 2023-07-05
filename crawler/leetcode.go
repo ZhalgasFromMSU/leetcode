@@ -1,20 +1,19 @@
 package crawler
 
 import (
-    "log"
-    "sync"
+	"log"
+	"sync"
 )
 
 type Crawler struct {
-
 }
 
-func NewCrawler(logger *log.Logger) (Crawler, error) {
-    return Crawler{}, nil
+func NewCrawler(logger *log.Logger) *Crawler {
+	return &Crawler{}
 }
 
 func (cr *Crawler) StartCrawling(wg *sync.WaitGroup) {
-    defer wg.Done()
+	defer wg.Done()
 
 }
 
