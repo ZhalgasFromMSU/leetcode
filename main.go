@@ -10,28 +10,34 @@ import (
     // "github.com/ZhalgasFromMSU/leetcode/crawler"
 )
 
+func setupBot(bot *telegram.Bot) {
+    bot.RegisterCallbackWithHelp("dump", "arguments: day | week | all; dump information about solved tasks in specified time period", func (args string) string {
+        return "Hello, world!"
+    })
+
+    bot.RegisterCallbackWithHelp("add_profile", "arguments: <leetcode username>; adds profile to watchlist", func (args string) string {
+        return fmt.Sprintf("Added %v to watchlist", args)
+    })
+
+    bot.RegisterDefaultHelp()
+    bot.HandleShutdownSignal()
+}
+
 func main() {
     logFile, err := os.OpenFile("log.txt", os.O_RDWR | os.O_CREATE | os.O_APPEND, 0666)
     if err != nil {
         panic("Couldn't open log file")
     }
-
     defer logFile.Close()
 
     logger := log.New(logFile, "", log.LstdFlags | log.Lshortfile)
 
     bot, err := telegram.NewBot(logger)
     if err != nil {
-        logger.Panicln("Error creating bot: {}", err.Error())
+        logger.Panicf("Error creating bot: %v", err.Error())
     }
 
-    bot.RegisterCallback("/dump", func (args string) string {
-        return ""
-    })
-
-    bot.RegisterCallback("/add_profile", func(args string) string {
-        return fmt.Sprintf("Added %v to watchlist", args)
-    })
+    setupBot(&bot)
 
     wg := sync.WaitGroup{}
     wg.Add(1)
